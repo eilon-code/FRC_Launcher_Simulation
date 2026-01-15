@@ -43,39 +43,44 @@ BallRadius = 0.075;             % meters
 targetZ_relative = targetZ - shooter_height;
 
 % Running params:
-angle_vals = 55:1:70;           % angle range
+unique_angles = unique(masterTable.Angle);
 distanceToTarget = 0.8:0.1:6;   % horizontal distance to center target
 
-for fixed_angle = angle_vals
-    % --- Data Preparation ---
-    % 1. Filter database for the fixed angle
-    angle_tol = 0.1;
-    angle_subset = masterTable(abs(masterTable.Angle - fixed_angle) < angle_tol, :);
+% Extract Ratios for the whole table once to save time
+all_omegas = cellfun(@(x) x(2), masterTable.Omega);
+masterTable.Ratio = all_omegas ./ masterTable.Velocity;
+unique_ratios = unique(masterTable.Ratio);
+
+% --- Nested Loops ---
+for ang = unique_angles'
+    % 1. Filter data for this specific shooting angle
+    angle_subset = masterTable(abs(masterTable.Angle - ang) < 0.01, :);
     
-    % 2. Extract unique omegas from this subset
-    all_omegas = cellfun(@(x) x(2), angle_subset.Omega);
-    unique_omegas = unique(all_omegas);
+    % Initialize grid for this specific angle
+    [D_grid, R_grid] = meshgrid(distanceToTarget, unique_ratios);
+    Success_grid = zeros(size(D_grid));
     
-    % 3. Initialize the Success Grid
-    [Dist_grid, W_grid] = meshgrid(distanceToTarget, unique_omegas);
-    Success_grid = zeros(size(Dist_grid));
-    
-    % --- Processing ---
-    for i = 1:length(unique_omegas)
-        curr_w = unique_omegas(i);
+    fprintf('Processing Angle: %.1f...\n', ang);
+
+    for j = 1:length(distanceToTarget)
+        curr_dist = distanceToTarget(j);
         
-        % Filter subset for this specific omega
-        omega_rows = angle_subset(all_omegas == curr_w, :);
-        
-        for j = 1:length(distanceToTarget)
-            curr_dist = distanceToTarget(j);
+        for i = 1:length(unique_ratios)
+            curr_ratio = unique_ratios(i);
             
-            % Check if any velocity in this (Angle, Omega) group hits the target
+            % 2. Get all velocities available for this specific Angle + Ratio
+            % This is the "Velocity Search" step
+            cand_rows = angle_subset(abs(angle_subset.Ratio - curr_ratio) < 1e-5, :);
+            
+            if isempty(cand_rows), continue; end
+            
+            % 3. Check if ANY of these velocities result in a goal
             match_found = false;
-            for r = 1:height(omega_rows)
-                if check_goal_projectile(omega_rows(r, :), curr_dist, targetZ_relative, tolX, radiusX, BallRadius)
+            for r = 1:height(cand_rows)
+                % Passing data to your function
+                if check_goal_projectile(cand_rows(r, :), curr_dist, targetZ_relative, tolX, radiusX, BallRadius)
                     match_found = true;
-                    break; 
+                    break; % Found a velocity that works!
                 end
             end
             
@@ -85,18 +90,18 @@ for fixed_angle = angle_vals
         end
     end
     
-    % --- Visualization ---
-    figure('Color', 'w', 'Name', ['Success Map at Angle ', num2str(fixed_angle)]);
-    surf(Dist_grid, W_grid, Success_grid);
-    
-    % Aesthetics
-    shading interp; % Smooths out the color transitions
-    view(0, 90);    % Top-down view (Heatmap style)
-    colormap([0.9 0.3 0.3; 0.3 0.9 0.3]); % Red (Fail) to Green (Success)
-    
-    xlabel('Distance to Target (X) [m]');
-    ylabel('Backspin (\omega_y) [rad/s]');
-    title(['Feasibility Map: Fixed Angle = ', num2str(fixed_angle), '°']);
-    subtitle('Green = Goal is possible at some velocity | Red = Impossible');
+    % --- Visualization for this Angle ---
+    plot_success_map(D_grid, R_grid, Success_grid, ang);
+end
+
+function plot_success_map(D, R, S, ang)
+    figure('Color', 'w', 'Name', sprintf('Angle %.1f', ang));
+    surf(D, R, S);
+    view(0, 90); % Top-down view
+    shading flat;
+    colormap([1 0.4 0.4; 0.4 1 0.4]); % Red for Fail, Green for Success
+    xlabel('Distance to Target (m)');
+    ylabel('Spin-to-Velocity Ratio (rad/m)');
+    title(['Success Map | Launch Angle: ', num2str(ang), '°']);
     grid on;
 end
