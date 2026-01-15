@@ -10,7 +10,12 @@ for target_angle = 55:1:70   % The "shared angle" you want to inspect
     subset = masterTable(abs(masterTable.Angle - target_angle) < tol, :);
     
     % 3. Sort by Velocity (important for the legend and color gradient)
-    subset = sortrows(subset, 'Velocity');
+    subset = sortrows(subset, 'Velocity'); % Sort so legend/colors align
+
+    % 3. Setup Colors
+    unique_v = unique(subset.Velocity);
+    v_colors = jet(length(unique_v)); % One distinct color per velocity
+    max_omega = max(abs(cellfun(@(x) x(2), subset.Omega)));
     
     if isempty(subset)
         fprintf('No data found for Angle = %.1f. Check your database ranges.', target_angle);
@@ -19,35 +24,50 @@ for target_angle = 55:1:70   % The "shared angle" you want to inspect
         figure('Color', 'w', 'Name', sprintf('Trajectories at Angle = %.1f', target_angle));
         hold on; grid on;
         
-        % Create a color map (e.g., from blue for slow to red for fast)
-        colors = jet(height(subset));
-        
         for i = 1:height(subset)
-            traj = subset.Trajectory{i}; % Extract the resampled trajectory
+            % Extract Parameters
             v_val = subset.Velocity(i);
+            omega_vec = subset.Omega{i};
+            omega_y = omega_vec(2);
+            traj = subset.Trajectory{i};
             
-            % Clip at ground (z < 0)
-            ground_idx = find(traj(:,3) < 0, 1);
-            if ~isempty(ground_idx), traj = traj(1:ground_idx, :); end
-        
-            % Plot the line
-            plot3(traj(:,1), traj(:,2), traj(:,3), ...
-                'Color', colors(i,:), ...
-                'LineWidth', 2, ...
-                'DisplayName', sprintf('V = %.1f m/s', v_val));
+            % Find color for this velocity
+            c_idx = find(unique_v == v_val);
+            this_color = v_colors(c_idx, :);
+            
+            % --- CALCULATE OPACITY ---
+            % Map omega to opacity: Higher spin = more solid, Low spin = more ghost-like
+            % Adding 0.2 base so 0-spin isn't completely invisible
+            opacity = 0.3 + 0.7 * (abs(omega_y) / max_omega);
+            
+            % --- THE PLOTTING TRICK ---
+            % Since plot3 doesn't support Alpha, we use 'patch'
+            % We create a line by treating segments as a path
+            x = traj(:,1);
+            y = ones(size(x)) * omega_y;
+            z = traj(:,3);
+            
+            patch([x' NaN], [y' NaN], [z' NaN], 'r', ...
+                'EdgeColor', this_color, ...
+                'EdgeAlpha', opacity, ...
+                'LineWidth', 1.5, ...
+                'HandleVisibility', 'on'); 
         end
         
-        % --- Add field context ---
-        xlabel('Distance (X) [m]'); ylabel('Lateral (Y) [m]'); zlabel('Height (Z) [m]');
-        title(['Velocity Comparison at Launch Angle: ', num2str(target_angle), '°']);
-        view(60, 20);
-        axis tight; 
-        ylim([-1 1]); % Keep lateral view tight since we are mostly moving in X-Z
-        legend('show', 'Location', 'northeastoutside');
+        % 5. Polish
+        view(0,0);
+        xlabel('Distance (X) [m]');
+        ylabel('Spin (\omega_y) [rad/s]');
+        zlabel('Height (Z) [m]');
+        title(['Launch Profile at ', num2str(target_angle), '° (Color=Vel, Opacity=Spin)']);
         
-        % Optional: Highlight the peak of each trajectory
-        for i = 1:height(subset)
-            plot3(subset.DisAtMaxHeight(i), 0, subset.Apogee(i), 'ko', 'MarkerSize', 4, 'HandleVisibility', 'off');
+        % Create a custom legend for Velocities only
+        temp_lines = [];
+        for k = 1:length(unique_v)
+            temp_lines(k) = plot(NaN, NaN, 'Color', v_colors(k,:), 'LineWidth', 2);
         end
+        legend(temp_lines, string(unique_v) + " m/s", 'Location', 'northeastoutside');
+        
+        axis tight;
     end
 end
