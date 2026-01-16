@@ -49,7 +49,7 @@ db_file = 'ShootingDatabase.mat';
 
 % Define your search grid
 a_list = 55:1:70;       % FRC scale angles
-v_list = 7:0.2:9;       % FRC scale velocities
+v_list = 5:0.2:9;       % FRC scale velocities
 ratio_velocity_to_spin_list = -1.5:0.25:1.5;
 
 fprintf('Generating database...\n');
