@@ -1,8 +1,12 @@
+close all;
+clear;
+clc;
 %% Visualize Trajectories by Velocity for a Shared Angle
 load('ShootingDatabase.mat'); % Load your generated data
 
+angle_vals_list = unique(masterTable.Angle)';
 % 1. Settings
-for target_angle = 55:1:70   % The "shared angle" you want to inspect
+for target_angle = angle_vals_list
     tol = 0.1;              % Tolerance (in case of floating point precision)
     
     % 2. Filter the table
@@ -59,7 +63,7 @@ for target_angle = 55:1:70   % The "shared angle" you want to inspect
         xlabel('Distance (X) [m]');
         ylabel('Spin (\omega_y) [rad/s]');
         zlabel('Height (Z) [m]');
-        title(['Launch Profile at ', num2str(target_angle), '° (Color=Vel, Opacity=Spin)']);
+        title(sprintf('Launch Profile at %.1f° (Color=Vel, Opacity=Spin)', target_angle));
         
         % Create a custom legend for Velocities only
         temp_lines = [];

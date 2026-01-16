@@ -1,40 +1,10 @@
-function isGoal = check_goal_projectile(row, targetX, targetZ, tolX, radiusX, BallRadius)
-    % row: A single row from your masterTable
-    % targetX, targetZ: Goal center coordinates
-    
-    % REQUIREMENT 1: Peak must happen before the target
-    % We use your saved 'DisAtMaxHeight' column
-    if row.DisAtMaxHeight >= targetX - radiusX
-        isGoal = false;
-        return;
-    end
-    if row.Apogee <= targetZ + BallRadius
-        isGoal = false;
-        return;
-    end
-    
-    % Extract the trajectory for the crossing check
-    trajectory = row.Trajectory{1};
-    
-    % 2. Check for points in the X-window (the "scoring zone")
-    x_in_zone_idx = find(abs(trajectory(:,1) - targetX) <= tolX);
-    
-    if isempty(x_in_zone_idx)
-        isGoal = false;
-        return;
-    end
-    
-    % 3. Check for vertical crossing (Requirement 2)
-    % We look at the trajectory points that pass through the goal distance
-    z_at_target_zone = trajectory(x_in_zone_idx, 3);
-    
-    has_point_above = any(z_at_target_zone >= targetZ);
-    has_point_below = any(z_at_target_zone <= targetZ);
-    
-    isGoal = has_point_above && has_point_below;
-end
+close all;
+clear;
+clc;
 
-% --- Configuration ---
+%% Visualize Trajectories Success Map
+load('ShootingDatabase.mat'); % Load your generated data
+%% --- Configuration ---
 shooter_height = 0.5;           % meters
 targetZ = 1.8288;               % meters
 tolX = 1.12;                    % meters
@@ -42,16 +12,16 @@ radiusX = 0.626;                % meters
 BallRadius = 0.075;             % meters
 targetZ_relative = targetZ - shooter_height;
 
-% Running params:
+%% Running params:
 unique_angles = unique(masterTable.Angle);
-distanceToTarget = 0.8:0.1:6;   % horizontal distance to center target
+distanceToTarget = 0.8:0.1:8;   % horizontal distance to center target
 
-% Extract Ratios for the whole table once to save time
+%% Extract Ratios for the whole table once to save time
 all_omegas = cellfun(@(x) x(2), masterTable.Omega);
 masterTable.Ratio = all_omegas ./ masterTable.Velocity;
 unique_ratios = unique(masterTable.Ratio);
 
-% --- Nested Loops ---
+%% --- Nested Loops ---
 for ang = unique_angles'
     % 1. Filter data for this specific shooting angle
     angle_subset = masterTable(abs(masterTable.Angle - ang) < 0.01, :);
