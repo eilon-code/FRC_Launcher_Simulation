@@ -17,13 +17,30 @@ fprintf('Compiling model for Rapid Accelerator...\n');
 Simulink.BlockDiagram.buildRapidAcceleratorTarget(model);
 
 %% 2. יצירת מרחב הפרמטרים (Grid Search)
-a_list = 55:0.5:85;
-v_list = 4.4:0.2:9;
-ratio_list = -4:0.25:4;
+a_list = 55:20:65;%85;      % זוויות ירי במעלות
+v_list = 5:2:6;%15;         % מהירויות ירי במטר/שנייה
+ratio_list = -4:4:4;        % יחס סיבוב לספין
 
-[V, A, R] = ndgrid(v_list, a_list, ratio_list);
-all_params = [V(:), A(:), R(:)];
+v_x_robot_list = -2:2:2;    % מהירות רובוט בכיוון הירי
+v_y_robot_list = -2:2:2;    % מהירות רובוט בניצב לכיוון הירי
+
+% יצירת הגריד - כל שילוב אפשרי בין הרשימות
+[V_grid, A_grid, R_grid, V_x_robot_grid, V_y_robot_grid] = ndgrid( ...
+    v_list, a_list, ratio_list, v_x_robot_list, v_y_robot_list ...
+    );
+V_0_x = V_grid .* cos(deg2rad(A_grid)) + V_x_robot_grid;
+V_0_y = V_y_robot_grid;
+V_0_z = V_grid .* sin(deg2rad(A_grid));
+
+Omega_grid = R_grid .* V_grid;
+
+% ריכוז כל הנתונים למטריצה אחת שבה כל שורה היא סימולציה נפרדת
+% עמודות: [Vx, Vy, Vz, V_mag, Ratio]
+all_params = [V_0_x(:), V_0_y(:), V_0_z(:), Omega_grid(:)];
+
 num_sims = size(all_params, 1);
+
+fprintf('created %d different sets of parameters to simulate.\n', num_sims);
 
 % יצירת מערך SimulationInput
 % התיקון: יצירה מפורשת של המערך כדי למנוע שגיאות ModelName
@@ -31,10 +48,9 @@ simInputs(num_sims) = Simulink.SimulationInput(model);
 fprintf('Initializing Values for %d simulations...\n', num_sims);
 for i = 1:num_sims
     simInputs(i) = Simulink.SimulationInput(model); % וידוא שם המודל בכל איבר
-    simInputs(i) = simInputs(i).setVariable('V_mag', all_params(i, 1));
-    simInputs(i) = simInputs(i).setVariable('Angle', all_params(i, 2) * (pi/180));
     simInputs(i) = simInputs(i).setVariable('Initial_Height', 0);
-    simInputs(i) = simInputs(i).setVariable('omega_val', [0, all_params(i, 1)*all_params(i, 3), 0]);
+    simInputs(i) = simInputs(i).setVariable('V_0', [all_params(i, 1),all_params(i, 2),all_params(i, 3)]);
+    simInputs(i) = simInputs(i).setVariable('omega_0', [0, all_params(i, 4), 0]);
 end
 
 %% 3. הרצה מקבילית
@@ -48,40 +64,37 @@ fprintf('Simulations complete in %.2f seconds.\n', totalTime);
 dt = 0.06;
 results = cell(num_sims, 1);
 
-% פירוק המערך למשתנים נפרדים לפני הלולאה יוצר "Slicing" אוטומטי
-V_all = all_params(:,1);
-A_all = all_params(:,2);
-R_all = all_params(:,3);
-
 % שימוש ב-parfor במקום for
 fprintf('Processing %d results in parallel...\n', num_sims);
 
 parfor i = 1:num_sims
-    v = V_all(i);
-    ang = A_all(i);
-    ratio = R_all(i);
-    omega_xyz = [0, (v * ratio), 0]; 
+    v_out = V_grid(i);
+    ang = A_grid(i);
+    ratio = R_grid(i);
+    omega_xyz = [0, (v_out * ratio), 0];
+    v_robot = [V_x_robot_grid(i),V_y_robot_grid(i),0];
     
-    % --- THE FIX: CHECK IF DATA EXISTS ---
-    % isprop checks if the field 'simout' exists in the SimulationOutput object
-    if isprop(simOuts(i), 'simout') && ~isempty(simOuts(i).simout)
+    % --- CHECK IF DATA EXISTS ---
+    % isprop checks if the field 'simoutP' exists in the SimulationOutput object
+    if isprop(simOuts(i), 'simoutP') && ~isempty(simOuts(i).simoutP)
         try
-            results{i} = intercept_simulation_output(v, ang, 0, omega_xyz, simOuts(i), dt);
-        catch
-            fprintf('Simulation number %d Collapsed...\n', i);
-            results{i} = table(); % Handle internal function errors
+            % קריאה לפונקציית החילוץ שלך
+            results{i} = intercept_simulation_output(0, v_out, ang, omega_xyz, v_robot, simOuts(i), dt);
+        catch ME
+            fprintf('Simulation %d failed during interception: %s\n', i, ME.message);
+            results{i} = table(); 
         end
     else
-        % If simulation failed to produce data, return an empty table row
-        % so the vertcat later doesn't fail
+        % אם הנתונים בפורמט Dataset, הגישה היא דרך logsout או ישירות
+        % נסה להדפיס simOuts(1) בחלון הפקודות כדי לראות את המבנה המדויק
         results{i} = table(); 
-        fprintf('Simulation %d failed to produce data\n', i);
+        fprintf('Simulation %d: No data found in simoutP\n', i);
     end
 end
- 
+
 %% Combine all rows into one table
 masterTable = vertcat(results{:});
 
 %% Save (or add to) DataBase
-db_file = 'ShootingDatabase.mat';
+db_file = 'ShootingDatabase_3D.mat';
 save_or_add_to(db_file, masterTable);
